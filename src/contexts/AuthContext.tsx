@@ -25,8 +25,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Error fetching session:', error);
+      }
       setUser(session?.user ?? null);
+      setLoading(false);
+    }).catch((error) => {
+      console.error('Failed to get session:', error);
       setLoading(false);
     });
 
@@ -40,28 +46,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
 
-    if (!error && data.user) {
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert([
-          {
-            id: data.user.id,
-            email: email,
-            full_name: fullName,
-          },
-        ]);
-
-      if (profileError) {
-        return { error: profileError };
+      if (error) {
+        return { error };
       }
-    }
 
-    return { error };
+      if (data.user) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert([
+            {
+              id: data.user.id,
+              email: email,
+              full_name: fullName,
+              language_preference: 'en',
+              subscription_plan: 'free',
+              visa_count: 0,
+              is_admin: false,
+            },
+          ]);
+
+        if (profileError) {
+          console.error('Profile creation error:', profileError);
+          return { error: profileError };
+        }
+
+        const { error: subscriptionError } = await supabase
+          .from('subscriptions')
+          .insert([
+            {
+              user_id: data.user.id,
+              plan_type: 'free',
+              status: 'active',
+              auto_renew: false,
+            },
+          ]);
+
+        if (subscriptionError) {
+          console.error('Subscription creation error:', subscriptionError);
+        }
+      }
+
+      return { error: null };
+    } catch (error) {
+      console.error('Sign up error:', error);
+      return { error };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
